@@ -1,0 +1,49 @@
+name: 打包 金手指GoldenFinger.exe
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:       # 允许手动点击触发
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest   # 微软免费提供的 Windows 虚拟机
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyQt5 matplotlib numpy scipy mplcursors pyinstaller
+
+      - name: 打包为单文件 EXE
+        run: |
+          pyinstaller `
+            --onefile `
+            --windowed `
+            --name "金手指GoldenFinger" `
+            --hidden-import PyQt5.sip `
+            --hidden-import PyQt5.QtCore `
+            --hidden-import PyQt5.QtGui `
+            --hidden-import PyQt5.QtWidgets `
+            --hidden-import matplotlib.backends.backend_qt5agg `
+            --hidden-import mpl_toolkits.mplot3d `
+            --hidden-import scipy.special `
+            --hidden-import scipy._lib.messagestream `
+            --collect-submodules matplotlib `
+            --collect-submodules mplcursors `
+            golden_finger.py
+
+      - name: 上传 EXE 为 Artifact（可直接下载）
+        uses: actions/upload-artifact@v4
+        with:
+          name: 金手指GoldenFinger-Windows-EXE
+          path: dist/金手指GoldenFinger.exe
+          retention-days: 30
