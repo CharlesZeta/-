@@ -47,13 +47,14 @@ def payoff_call(ST, tr):
     return max(cy*tr.PR-tr.fee,-tr.fee)
 
 def c_ret_final(ST, tr):
+    """产品最终收益率 = PR × cy - fee（以本金1000为基准，与payoff_call一致）"""
     cy=0.25 if ST>=375 else(min(ST/300-1,0.25)if ST>300 else 0.)
-    return(tr.guar+cy*tr.PR*1000-tr.issue)/tr.issue-tr.fee
+    return cy*tr.PR - tr.fee
 
 def c_ret_path(ST,t,T,tr):
-    rf=c_ret_final(ST,tr); gap=(tr.guar-tr.issue)/tr.issue
-    sm=max(0.,min(1.,(300-ST)/50))
-    return min(rf-gap*(1-t/T)*(1-sm),c_ret_final(375,tr))
+    """路径中途账面收益，直接用c_ret_final并封顶"""
+    r = c_ret_final(ST, tr)
+    return min(r, c_ret_final(375, tr))
 
 def i_ret(ST):
     return 0.034-(0.018*np.exp(-((ST-375)/14)**2)+0.004)
@@ -86,24 +87,37 @@ def sim_scene(Sfin,vv,seed):
 
 def plot_scene(fig,rect,t,S,ap,bp,ev,title,legend=False):
     ax=fig.add_axes(rect); ax2=ax.twinx()
+    # 左轴：价格参考线 + 文字
     ax.axhline(375,ls='--',color='r',lw=1.2)
     ax.axhline(300,ls='--',color='k',lw=1.)
+    ax.text(0.04,376,'L=375',color='r',fontweight='bold',fontsize=7,
+            transform=ax.get_yaxis_transform())
+    ax.text(0.04,301,'K=300',color='k',fontweight='bold',fontsize=7,
+            transform=ax.get_yaxis_transform())
     hS,=ax.plot(t,S,color=CS,lw=2.,label='St')
     ax.set_ylabel('St'); ax.set_xlim(0,P.T)
     ax.set_ylim(min(min(S)-10,220),max(max(S)+10,405))
-    ax2.axhline(0,ls=':',color='k',lw=.7)
-    ax2.axhline(-P.A.fee*100,ls='--',color=CA,lw=.9)
-    ax2.axhline(-P.B.fee*100,ls='--',color=CB,lw=.9)
-    hA,=ax2.plot(t,ap,color=CA,lw=2.4,label='A')
-    hB,=ax2.plot(t,bp,color=CB,lw=2.4,label='B')
-    ax2.set_ylabel('收益率 (%)'); ax2.set_ylim(-17,22)
+    # 右轴：收益曲线 + 费率参考线 + 文字
+    fA0=-P.A.fee*100; fB0=-P.B.fee*100
+    ax2.axhline(0,  ls=':', color='k', lw=.7)
+    ax2.axhline(fA0,ls='--',color=CA,  lw=.9)
+    ax2.axhline(fB0,ls='--',color=CB,  lw=.9)
+    ax2.text(P.T+0.04, fA0, f'A费\n{fA0:.1f}%',
+             color=CA, fontsize=7, fontweight='bold', va='center', clip_on=False)
+    ax2.text(P.T+0.04, fB0, f'B费\n{fB0:.1f}%',
+             color=CB, fontsize=7, fontweight='bold', va='center', clip_on=False)
+    hA,=ax2.plot(t,ap,color=CA,lw=2.4,label='A 产品总收益')
+    hB,=ax2.plot(t,bp,color=CB,lw=2.4,label='B 产品总收益')
+    ax2.set_ylabel('收益率 (%)'); ax2.set_ylim(-8,32)
+    # 敲出标记
     if ev>=0:
         ax.plot(t[ev],375,'p',ms=16,mfc='r',mec='k',mew=1.5)
         ax.text(t[ev]+.05,380,'⚡敲出',color='r',fontweight='bold',
                 bbox=dict(facecolor='yellow',edgecolor='red',alpha=.9),fontsize=8)
     ax.set_xlabel('t (年)'); ax.set_title(title,fontweight='bold',fontsize=10)
-    if legend:
-        ax.legend([hS,hA,hB],['St','A','B'],loc='lower left',fontsize=7)
+    # 图例始终显示
+    ax.legend([hS,hA,hB],['St','A 产品总收益','B 产品总收益'],
+              loc='lower left',fontsize=7,framealpha=0.85)
 
 # ══════════════════════════════════════════════════════════════
 #  主程序
@@ -231,7 +245,7 @@ class App(tk.Tk):
             'Tranche A: 上限+14.7%\n'
             '  发行1000 保本1000\n'
             '  PR70%  费2.8%\n\n'
-            'Tranche B: 上限+16.45%\n'
+            'Tranche B: 上限+28.5%\n'
             '  发行1100 保本1000\n'
             '  PR130% 费4%\n'
             '  保险垫90.91%'
@@ -306,8 +320,17 @@ class App(tk.Tk):
         ax1.axhline(0,ls=':',color='k',lw=0.8)
         ax1.text(302,30,'K=300',color='k',fontweight='bold',fontsize=8)
         ax1.text(377,30,'L=375',color='r',fontweight='bold',fontsize=8)
-        ax1.axhline(-P.A.fee*100,ls='--',color=CA,lw=1.)
-        ax1.axhline(-P.B.fee*100,ls='--',color=CB,lw=1.)
+        fA0=-P.A.fee*100; fB0=-P.B.fee*100
+        ax1.axhline(fA0,ls='--',color=CA,lw=1.)
+        ax1.axhline(fB0,ls='--',color=CB,lw=1.)
+        ax1.text(456, fA0, f'A起始\n{fA0:.1f}%',
+                 color=CA, fontsize=7, fontweight='bold', va='center', clip_on=False)
+        ax1.text(456, fB0, f'B起始\n{fB0:.1f}%',
+                 color=CB, fontsize=7, fontweight='bold', va='center', clip_on=False)
+        ax1.text(202, 24,
+                 f'注: B(PR={P.B.PR*100:.0f}%) > A(PR={P.A.PR*100:.0f}%)\nS>306后B收益恒高于A',
+                 fontsize=7, color='#444', va='top',
+                 bbox=dict(facecolor='#F5F5F5', edgecolor='#CCC', alpha=0.9))
         bepA=300*(1+P.A.fee/P.A.PR); bepB=300*(1+P.B.fee/P.B.PR)
         for bep,col,lbl in[(bepA,CA,'A'),(bepB,CB,'B')]:
             ax1.axvline(bep,ymax=0.48,ls='-.',color=col,lw=0.9)
@@ -315,7 +338,9 @@ class App(tk.Tk):
         ax1.set_xlabel('S_T'); ax1.set_ylabel('Payoff (%)')
         ax1.set_title(f'(a) 看涨期权 Payoff  A:+{payoff_call(375,P.A)*100:.1f}%  '
                       f'B:+{payoff_call(375,P.B)*100:.1f}%',fontweight='bold',fontsize=10)
-        ax1.legend(loc='upper left',fontsize=8); ax1.set_ylim(-11,33)
+        ax1.legend(loc='upper left',fontsize=8)
+        ax1.set_ylim(-8, 32)
+        ax1.set_xlim(200, 460)
         t1,S1,ad1,bd1,_ =sim_scene(240,0.16,11)
         t2,S2,ad2,bd2,_ =sim_scene(355,0.14,22)
         t3,S3,ad3,bd3,ev=sim_scene(395,0.24,33)
@@ -357,7 +382,7 @@ class App(tk.Tk):
         if tr!=1: l,=ax.plot(S,rB,lw=2.8,color=CB); lines.append(l); labels.append('散户B')
         lK=ax.axvline(300,ls='--',color='k',lw=1.4)
         lL=ax.axvline(375,ls='--',color='r',lw=1.4)
-        ax.set_ylabel('散户收益 (%)',fontsize=11); ax.set_ylim(-20,20)
+        ax.set_ylabel('散户收益 (%)',fontsize=11); ax.set_ylim(-8, 32)
         ax.set_xlabel('黄金价格 S',fontsize=11)
         lI,=ax2.plot(S,iss,'--',lw=2.8,color=CI)
         ax2.set_ylabel('机构利润 (%)',fontsize=11,color=CI)
@@ -410,12 +435,12 @@ class App(tk.Tk):
 
         axR.axhline(0,ls=':',color='k',lw=0.8)
         axR.axhline(capA,ls=':',color=CA,lw=1); axR.axhline(capB,ls=':',color=CB,lw=1)
-        axR.text(P.T+0.04,capA,f'上限A\n{capA:.2f}%',color=CA,fontsize=7,va='center')
-        axR.text(P.T+0.04,capB,f'上限B\n{capB:.2f}%',color=CB,fontsize=7,va='center')
+        axR.text(P.T+0.04,capA,f'上限A\n{capA:.2f}%',color=CA,fontsize=7,va='center',clip_on=False)
+        axR.text(P.T+0.04,capB,f'上限B\n{capB:.2f}%',color=CB,fontsize=7,va='center',clip_on=False)
         lnRA,=axR.plot([],[],'-', color=CA,lw=2.8,label='散户A')
         lnRB,=axR.plot([],[],'-', color=CB,lw=2.8,label='散户B')
         lnRI,=axR.plot([],[],'--',color=CI,lw=2.5,label='机构')
-        axR.set_ylabel('累计收益率 (%)'); axR.set_ylim(-17,22); axR.set_xlim(0,P.T)
+        axR.set_ylabel('累计收益率 (%)'); axR.set_ylim(-8, 32); axR.set_xlim(0,P.T)
         axR.set_title(f'散户A(绿≤{capA:.2f}%) / B(黄≤{capB:.2f}%) / 机构(紫)',
                       fontweight='bold',fontsize=10)
         axR.legend(loc='upper left',ncol=3,fontsize=8)
