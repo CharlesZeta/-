@@ -11,7 +11,7 @@ warnings.filterwarnings('ignore')
 import numpy as np
 from scipy.special import erf as sp_erf
 
-# ══ 中文字体 + 负号 ══════════════════════════════════════════
+# ══ 中文字体 ════════════════════════════════════════════════
 import matplotlib
 matplotlib.use('Qt5Agg')
 matplotlib.rcParams['font.sans-serif'] = [
@@ -22,7 +22,6 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 matplotlib.rcParams['font.size'] = 10
 
 from matplotlib.figure import Figure
-from matplotlib.animation import FuncAnimation          # ← 关键：用原生动画
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 
@@ -105,16 +104,15 @@ def attach_cursor(lines):
         cur = mplcursors.cursor(lines, hover=True)
         @cur.connect("add")
         def _(sel):
-            x,y = sel.target
+            x,y=sel.target
             sel.annotation.set_text(f'x={x:.3f}\ny={y:.3f}')
             sel.annotation.get_bbox_patch().set(fc='#FFFDE0', alpha=0.92)
 
 def plot_scene(fig, rect, t, S, ap, bp, ev, title, legend=False):
-    ax  = fig.add_axes(rect)
-    ax2 = ax.twinx()
+    ax=fig.add_axes(rect); ax2=ax.twinx()
     ax.axhline(375,ls='--',color='r',lw=1.2)
     ax.axhline(300,ls='--',color='k',lw=1.0)
-    hS, = ax.plot(t,S,color=COL_S,lw=2.0,label='St')
+    hS,=ax.plot(t,S,color=COL_S,lw=2.0,label='St')
     ax.set_ylabel('St'); ax.set_xlim(0,P.T)
     ax.set_ylim(min(min(S)-10,220), max(max(S)+10,405))
     fA0=-P.A.fee*100; fB0=-P.B.fee*100
@@ -123,8 +121,8 @@ def plot_scene(fig, rect, t, S, ap, bp, ev, title, legend=False):
     ax2.axhline(fB0,ls='--',color=COL_B,lw=0.9)
     ax2.text(P.T+0.04,fA0,f'A费\n{fA0:.1f}%',color=COL_A,fontsize=7,fontweight='bold',va='center')
     ax2.text(P.T+0.04,fB0,f'B费\n{fB0:.1f}%',color=COL_B,fontsize=7,fontweight='bold',va='center')
-    hA, = ax2.plot(t,ap,color=COL_A,lw=2.4,label='A 产品总收益')
-    hB, = ax2.plot(t,bp,color=COL_B,lw=2.4,label='B 产品总收益')
+    hA,=ax2.plot(t,ap,color=COL_A,lw=2.4,label='A 产品总收益')
+    hB,=ax2.plot(t,bp,color=COL_B,lw=2.4,label='B 产品总收益')
     ax2.set_ylabel('收益率 (%)'); ax2.set_ylim(-17,22)
     if ev>=0:
         ax.plot(t[ev],375,'p',ms=18,mfc='r',mec='k',mew=1.5)
@@ -145,7 +143,9 @@ class GoldenFingerApp(QMainWindow):
         self.resize(1460, 900)
         self.setStyleSheet('QMainWindow{background:#EEEEF6;}')
 
-        self._anim = None   # 持有 FuncAnimation 引用，防止被GC销毁
+        # ── 关键：用 canvas.new_timer() 创建的 timer，必须持有引用 ──
+        self._canvas_timer = None   # matplotlib 后端 timer（不会崩溃）
+        self._anim_state   = None   # 动画帧数据
         self.canvas  = None
         self.toolbar = None
 
@@ -199,29 +199,32 @@ class GoldenFingerApp(QMainWindow):
         ls='color:#E3F2FD;font-size:11px;background:transparent;'
 
         vb.addWidget(sec('① 模块'))
-        self.dd_mod=QComboBox(); self.dd_mod.addItems(['1-Payoff情景','2-3D曲面','3-双轴对比','4-动画+Delta'])
+        self.dd_mod=QComboBox()
+        self.dd_mod.addItems(['1-Payoff情景','2-3D曲面','3-双轴对比','4-动画+Delta'])
         self.dd_mod.setCurrentIndex(3); self.dd_mod.setStyleSheet(cs); vb.addWidget(self.dd_mod)
 
         vb.addWidget(sec('② 档位'))
-        self.dd_tr=QComboBox(); self.dd_tr.addItems(['仅A','仅B','A+B对比'])
+        self.dd_tr=QComboBox()
+        self.dd_tr.addItems(['仅A','仅B','A+B对比'])
         self.dd_tr.setCurrentIndex(2); self.dd_tr.setStyleSheet(cs); vb.addWidget(self.dd_tr)
 
         vb.addWidget(sec('③ 情景'))
-        self.dd_sc=QComboBox(); self.dd_sc.addItems(['下跌→250','上涨→350','敲出→395','随机'])
+        self.dd_sc=QComboBox()
+        self.dd_sc.addItems(['下跌→250','上涨→350','敲出→395','随机'])
         self.dd_sc.setCurrentIndex(2); self.dd_sc.setStyleSheet(cs); vb.addWidget(self.dd_sc)
 
         vb.addWidget(sec('④ 速度'))
         self.lbl_sp=QLabel('速度: 5.0'); self.lbl_sp.setStyleSheet(ls); vb.addWidget(self.lbl_sp)
         self.sld_sp=QSlider(Qt.Horizontal); self.sld_sp.setRange(10,100); self.sld_sp.setValue(50)
         self.sld_sp.setStyleSheet(ss)
-        self.sld_sp.valueChanged.connect(lambda v:self.lbl_sp.setText(f'速度: {v/10:.1f}'))
+        self.sld_sp.valueChanged.connect(lambda v: self.lbl_sp.setText(f'速度: {v/10:.1f}'))
         vb.addWidget(self.sld_sp)
 
         vb.addWidget(sec('⑤ 波动率 σ'))
         self.lbl_vol=QLabel('σ = 0.170'); self.lbl_vol.setStyleSheet(ls); vb.addWidget(self.lbl_vol)
         self.sld_vol=QSlider(Qt.Horizontal); self.sld_vol.setRange(5,40); self.sld_vol.setValue(17)
         self.sld_vol.setStyleSheet(ss)
-        self.sld_vol.valueChanged.connect(lambda v:self.lbl_vol.setText(f'σ = {v/100:.3f}'))
+        self.sld_vol.valueChanged.connect(lambda v: self.lbl_vol.setText(f'σ = {v/100:.3f}'))
         vb.addWidget(self.sld_vol)
 
         vb.addSpacing(10)
@@ -284,8 +287,18 @@ class GoldenFingerApp(QMainWindow):
         return frame
 
     # ── 画布管理 ──────────────────────────────────────────
+    def _stop_timer(self):
+        """安全停止 matplotlib 后端 timer"""
+        if self._canvas_timer is not None:
+            try:
+                self._canvas_timer.stop()
+            except Exception:
+                pass
+            self._canvas_timer = None
+        self._anim_state = None
+
     def clear_plot(self):
-        self._anim = None          # 先停动画
+        self._stop_timer()
         if self.canvas:
             self.plot_layout.removeWidget(self.canvas)
             self.canvas.deleteLater(); self.canvas=None
@@ -302,6 +315,7 @@ class GoldenFingerApp(QMainWindow):
         self.plot_layout.addWidget(cv)
         self.canvas=cv; self.toolbar=tb
         cv.draw()
+        return cv   # 返回 canvas，用于创建 timer
 
     def run_module(self):
         m=self.dd_mod.currentIndex()+1
@@ -395,8 +409,9 @@ class GoldenFingerApp(QMainWindow):
         attach_cursor(lines[:2]+[lI])
         self._show(fig)
 
-    # ══ 模块4: FuncAnimation（彻底解决闪退）══════════════
+    # ══ 模块4：canvas.new_timer() ─ 官方推荐，不崩溃 ══════
     def _mod4(self, sc, sp, vol):
+        # ── 1. 预计算全部帧数据 ──────────────────────────
         N=250; tp=np.linspace(0,P.T,N); dt=P.T/N
         Sfin,vv={1:(250,vol),2:(350,vol),3:(395,max(vol,0.22)),4:(300,vol)}[sc]
         np.random.seed(7)
@@ -420,7 +435,7 @@ class GoldenFingerApp(QMainWindow):
                 if k>KO: iPnL+=deltas[k-1]*(Sp[k]-Sp[k-1])/300*0.08+P.r*dt*0.3
                 preI[k]=iPnL*100
 
-        # ── 建图 ──
+        # ── 2. 建图、空线 ────────────────────────────────
         fig=Figure(figsize=(13,9),facecolor='white')
         axP=fig.add_axes([0.08,0.70,0.86,0.25])
         axR=fig.add_axes([0.08,0.40,0.86,0.25])
@@ -457,16 +472,19 @@ class GoldenFingerApp(QMainWindow):
         axD.set_title('Delta 对冲仓位 & 调仓量×10  (Δ≈N(d₁)−N(d₃))',fontweight='bold',fontsize=10)
         axD.legend(loc='upper right',fontsize=8)
 
-        # ── 必须先 _show 才能获得有效 canvas ──
-        self._show(fig)
+        # ── 3. 绑定 canvas（必须在创建 timer 之前）────────
+        cv = self._show(fig)   # 返回新 canvas
 
-        # KO 标记状态（用列表避免 Python 闭包只读限制）
-        ko_done=[False]
+        # ── 4. 动画状态（用列表存帧计数器，闭包可写）──────
+        state = {'k': 1, 'ko_done': False}
 
-        # ── FuncAnimation 更新函数 ──────────────────────────
-        def update(k):
-            k = int(k)
-            if k >= N: return lnP, lnBal, lnRA, lnRB, lnRI, lnDlt, lnReb
+        # ── 5. 每帧回调：只更新线数据 + draw_idle() ───────
+        #    draw_idle() 是 matplotlib 官方文档推荐的调用方式
+        def _tick():
+            k = state['k']
+            if k >= N:
+                self._canvas_timer.stop()
+                return
 
             sl = slice(0, k+1)
             lnP.set_data(tp[sl], Sp[sl])
@@ -477,35 +495,34 @@ class GoldenFingerApp(QMainWindow):
             lnDlt.set_data(tp[sl], deltas[sl])
             lnReb.set_data(tp[sl], rebal[sl])
 
-            if KO>=0 and k==KO and not ko_done[0]:
-                ko_done[0]=True
-                axP.plot(tp[k],375,'p',ms=26,mfc='red',mec='k',mew=2,zorder=10)
-                axP.text(tp[k]+0.04,381,'⚡ 敲出!',color='red',fontsize=13,
+            if KO >= 0 and k == KO and not state['ko_done']:
+                state['ko_done'] = True
+                axP.plot(tp[k], 375, 'p', ms=26, mfc='red', mec='k', mew=2, zorder=10)
+                axP.text(tp[k]+0.04, 381, '⚡ 敲出!', color='red', fontsize=13,
                          fontweight='bold',
-                         bbox=dict(facecolor='yellow',edgecolor='red',alpha=0.95))
+                         bbox=dict(facecolor='yellow', edgecolor='red', alpha=0.95))
 
-            return lnP, lnBal, lnRA, lnRB, lnRI, lnDlt, lnReb
+            # ← 官方推荐：draw_idle 而非 draw，避免重入
+            cv.draw_idle()
+            state['k'] += 1
 
-        # interval(ms) = 1000 / (sp * fps_factor)
-        interval = max(8, int(600 / (sp * N / P.T)))
+        # ── 6. 用 canvas.new_timer() 创建 matplotlib 后端计时器 ──
+        #    这是官方文档里唯一不会在 Qt 嵌入场景下崩溃的方式
+        interval_ms = max(10, int(600 / (sp * N / P.T)))
+        self._canvas_timer = cv.new_timer(interval_ms)
+        self._canvas_timer.add_callback(_tick)
+        self._canvas_timer.start()
 
-        # ── 创建 FuncAnimation，存到 self._anim 防止被 GC ──
-        self._anim = FuncAnimation(
-            fig,
-            update,
-            frames=np.arange(1, N),
-            interval=interval,
-            blit=False,       # blit=True 在 Qt5Agg 双Y轴下有bug
-            repeat=False
-        )
-        # 通知 canvas 重新绘制（触发动画启动）
-        self.canvas.draw()
 
 # ══════════════════════════════════════════════════════════════
 def main():
+    # 必须在 QApplication 创建前设置，防止 Windows 高 DPI 缩放崩溃
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+
     app=QApplication(sys.argv)
     app.setStyle('Fusion')
-    app.setFont(QFont('Microsoft YaHei',10))
+    app.setFont(QFont('Microsoft YaHei', 10))
     win=GoldenFingerApp()
     win.show()
     sys.exit(app.exec_())
